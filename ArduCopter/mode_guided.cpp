@@ -243,6 +243,8 @@ void ModeGuided::pos_control_start()
 {
     // set to position control mode
     guided_mode = SubMode::Pos;
+	
+	wp_nav->wp_and_spline_init();
 
     // initialise position controller
     pva_control_start();
