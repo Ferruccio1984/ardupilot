@@ -379,7 +379,8 @@ void Plane::set_servos_manual_passthrough(void)
     SRV_Channels::set_output_scaled(SRV_Channel::k_elevator, pitch_in_expo(false));
     SRV_Channels::set_output_scaled(SRV_Channel::k_rudder, rudder_in_expo(false));
     float throttle = get_throttle_input(true);
-    SRV_Channels::set_output_scaled(SRV_Channel::k_throttle, throttle);
+   SRV_Channels::set_output_scaled(SRV_Channel::k_throttle,
+                                        constrain_float(SRV_Channels::get_output_scaled(SRV_Channel::k_throttle), aparm.throttle_min.get(),aparm.throttle_max.get()));
 
 #if HAL_QUADPLANE_ENABLED
     if (quadplane.available() && (quadplane.options & QuadPlane::OPTION_IDLE_GOV_MANUAL)) {
@@ -890,7 +891,7 @@ void Plane::set_servos(void)
             break;
 
         case AP_Arming::Required::YES_ZERO_PWM:
-            SRV_Channels::set_output_pwm(SRV_Channel::k_throttle, 0);
+            SRV_Channels::set_output_pwm(SRV_Channel::k_throttle, 1000);
             SRV_Channels::set_output_pwm(SRV_Channel::k_throttleLeft, 0);
             SRV_Channels::set_output_pwm(SRV_Channel::k_throttleRight, 0);
             break;
