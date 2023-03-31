@@ -80,6 +80,33 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @Range: 0 15
     // @User: Standard
     AP_GROUPINFO("WING_FLAP", 10, Tiltrotor, flap_angle_deg, 0),
+	
+	// @Param: AIL_YAW
+    // @DisplayName: enable aileron yaw
+    // @Description: if enabled will use ailerons for controlling yaw when wing is tilted fully up, 0 disables
+    // @Units: 
+    // @Increment: 1
+    // @Range: 0 1
+    // @User: Standard
+    AP_GROUPINFO("AIL_YAW", 11, Tiltrotor, tilt_ail_yaw, 0),
+
+    // @Param: TRIM_UP
+    // @DisplayName: wing trim position
+    // @Description: allows setting tilt wing trim position for no drift (longitudinal axis) hover
+    // @Units:
+    // @Increment: 0.01
+    // @Range: 0 0.5
+    // @User: Standard
+    AP_GROUPINFO("TRIM_UP", 12, Tiltrotor, tilt_up_pos, 0),
+
+    // @Param: TRIM_UP
+    // @DisplayName: wing trim position
+    // @Description: allows setting tilt wing trim position for no drift (longitudinal axis) hover
+    // @Units:
+    // @Increment: 0.01
+    // @Range: 0 0.5
+    // @User: Standard
+    AP_GROUPINFO("TILT_FREQ", 13, Tiltrotor, wt_freq, 0),
 
     AP_GROUPEND
 };
@@ -212,6 +239,15 @@ void Tiltrotor::continuous_update(void)
 {
     // default to inactive
     _motors_active = false;
+	
+	if (plane.quadplane.in_vtol_auto() || plane.quadplane.in_vtol_mode() || plane.quadplane.in_vtol_takeoff() || plane.quadplane.in_vtol_posvel_mode() || plane.quadplane.is_flying_vtol()) {
+		 const float tilt_threshold = (max_angle_deg/90.0f);
+		 float yaw_output = motors->get_yaw()+motors->get_yaw_ff();
+		 float scaling = 1.0f - current_tilt;
+      if(tilt_ail_yaw == 1 && current_tilt <= tilt_threshold){
+        	SRV_Channels::set_output_scaled(SRV_Channel::k_aileron, (yaw_output*scaling)*-SERVO_MAX);	
+        }
+     }
 
     // the maximum rate of throttle change
     float max_change;
@@ -286,7 +322,7 @@ void Tiltrotor::continuous_update(void)
          plane.control_mode == &plane.mode_qhover)) {
         if (quadplane.rc_fwd_thr_ch == nullptr) {
             // no manual throttle control, set angle to zero
-            slew(0);
+            slew(tilt_up_pos);
         } else {
             // manual control of forward throttle
             float settilt = .01f * quadplane.forward_throttle_pct();
@@ -305,8 +341,19 @@ void Tiltrotor::continuous_update(void)
         // Q_TILT_MAX. Anything above 50% throttle gets
         // Q_TILT_MAX. Below 50% throttle we decrease linearly. This
         // relies heavily on Q_VFWD_GAIN being set appropriately.
-       float settilt = constrain_float((SRV_Channels::get_output_scaled(SRV_Channel::k_throttle)-MAX(plane.aparm.throttle_min.get(),0)) / 50.0f, 0, 1);
-       slew(MIN(settilt * max_angle_deg / 90.0f, get_forward_flight_tilt()));
+       //float settilt = constrain_float((SRV_Channels::get_output_scaled(SRV_Channel::k_throttle)-MAX(plane.aparm.throttle_min.get(),0)) / 50.0f, 0, 1);
+        float  thr_out=SRV_Channels::get_output_scaled(SRV_Channel::k_throttle);
+        tilt_wing_trim_lpf.set_cutoff_frequency(wt_freq);
+        float settilt =constrain_float((.01f*(desired_tilt + thr_out)), -1, 1);
+        /*gcs().send_text(MAV_SEVERITY_INFO,"desire_tilt =%.1f",
+                                    (double)desired_tilt);
+        gcs().send_text(MAV_SEVERITY_INFO,"tilt_ff =%.1f",
+                                           (double)tilt_ff);
+        gcs().send_text(MAV_SEVERITY_INFO,"k_throttle =%.1f",
+                                                   (double)thr_out);*/
+        settilt = tilt_wing_trim_lpf.apply(settilt,plane.G_Dt);
+
+        slew(MIN(((settilt+tilt_up_pos)*(max_angle_deg / 90.0f)), get_forward_flight_tilt()));
     }
 }
 

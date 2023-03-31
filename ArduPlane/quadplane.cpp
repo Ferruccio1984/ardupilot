@@ -882,13 +882,13 @@ void QuadPlane::multicopter_attitude_rate_update(float yaw_rate_cds)
 
         if (use_yaw_target) {
             attitude_control->input_euler_angle_roll_pitch_yaw(plane.nav_roll_cd,
-                                                               plane.nav_pitch_cd,
+                                                               0.0f,
                                                                yaw_target_cd,
                                                                true);
         } else {
             // use euler angle attitude control
             attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(plane.nav_roll_cd,
-                                                                          plane.nav_pitch_cd,
+                                                                          0.0f,
                                                                           yaw_rate_cds);
         }
     } else {
@@ -2550,7 +2550,7 @@ void QuadPlane::vtol_position_controller(void)
 
         // call attitude controller
         attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(plane.nav_roll_cd,
-                                                                      plane.nav_pitch_cd,
+                                                                      0.0f,
                                                                       desired_auto_yaw_rate_cds() + get_weathervane_yaw_rate_cds());
         if ((plane.auto_state.wp_distance < position2_dist_threshold) && tiltrotor.tilt_angle_achieved()) {
             // if continuous tiltrotor only advance to position 2 once tilts have finished moving
@@ -2590,7 +2590,7 @@ void QuadPlane::vtol_position_controller(void)
 
         // call attitude controller
         attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(plane.nav_roll_cd,
-                                                                      plane.nav_pitch_cd,
+                                                                      0.0f,
                                                                       get_pilot_input_yaw_rate_cds() + get_weathervane_yaw_rate_cds());
         break;
     }
@@ -2629,7 +2629,7 @@ void QuadPlane::vtol_position_controller(void)
 
         // call attitude controller
         attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(plane.nav_roll_cd,
-                                                                      plane.nav_pitch_cd,
+                                                                      0.0f,
                                                                       get_pilot_input_yaw_rate_cds() + get_weathervane_yaw_rate_cds());
         break;
 
@@ -2852,7 +2852,7 @@ void QuadPlane::takeoff_controller(void)
     run_xy_controller();
 
     attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(plane.nav_roll_cd,
-                                                                  plane.nav_pitch_cd,
+                                                                  0.0f,
                                                                   get_pilot_input_yaw_rate_cds() + get_weathervane_yaw_rate_cds());
 
     float vel_z = wp_nav->get_default_speed_up();
@@ -2910,7 +2910,7 @@ void QuadPlane::waypoint_controller(void)
 
     // call attitude controller
     attitude_control->input_euler_angle_roll_pitch_yaw(plane.nav_roll_cd,
-                                                       plane.nav_pitch_cd,
+                                                       0.0f,
                                                        wp_nav->get_yaw(),
                                                        true);
 
@@ -3340,7 +3340,7 @@ float QuadPlane::forward_throttle_pct()
     /*
       in qautotune mode or modes without a velocity controller
     */
-    bool use_forward_gain = (vel_forward.gain > 0);
+    bool use_forward_gain = (vel_forward.gain > 0 || vel_forward.p > 0);
 #if QAUTOTUNE_ENABLED
     if (plane.control_mode == &plane.mode_qautotune) {
         use_forward_gain = false;

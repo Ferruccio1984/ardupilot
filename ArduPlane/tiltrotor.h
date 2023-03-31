@@ -14,6 +14,8 @@
  */
 #pragma once
 
+#include <Filter/Filter.h>
+#include <Filter/LowPassFilter.h>
 #include <AP_Param/AP_Param.h>
 #include "transition.h"
 
@@ -69,6 +71,9 @@ public:
     // always return true if not enabled or not a continuous type
     bool tilt_angle_achieved() const { return !enabled() || (type != TILT_TYPE_CONTINUOUS) || angle_achieved; }
 
+    void set_desired_tilt(float des_tilt) { desired_tilt = des_tilt; }
+    LowPassFilterFloat tilt_wing_trim_lpf;
+
     AP_Int8 enable;
     AP_Int16 tilt_mask;
     AP_Int16 max_rate_up_dps;
@@ -79,8 +84,12 @@ public:
     AP_Float fixed_angle;
     AP_Float fixed_gain;
     AP_Float flap_angle_deg;
+	AP_Int8  tilt_ail_yaw;
+	AP_Float tilt_up_pos;
+	AP_Float wt_freq;
 
     float current_tilt;
+    float desired_tilt;
     float current_throttle;
     bool _motors_active:1;
     float transition_yaw_cd;
