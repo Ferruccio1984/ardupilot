@@ -135,9 +135,6 @@ private:
     float _ground_clearance;         // Sensor offset distance
     float _gnd_hgt;                  // Height above ground, passed down from copter, can be from lidar or terrain
     float _avg_acc_z;                // Averaged vertical acceleration
-    float _acc_z_sum;                // Sum of vertical acceleration samples
-    int16_t _index;                  // Index for vertical acceleration rolling average
-    float _curr_acc_z[10];           // Array for storing vertical acceleration samples
     float _flare_alt_calc;           // Calculated flare altitude
     float _lift_hover;               // Main rotor thrust in hover condition
     float _c;                        // Main rotor drag coefficient
@@ -149,6 +146,7 @@ private:
     uint32_t _time_on_ground;        // Time elapsed after touch down
 
     LowPassFilterFloat _accel_target_filter; // acceleration target filter
+    AverageIntegralFilter<float, float, 10> _acc_z_avg; // vertical acceleration moving average
 
     //--------Parameter Values--------
     AP_Int8  _param_enable;

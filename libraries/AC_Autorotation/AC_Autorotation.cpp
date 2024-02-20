@@ -184,11 +184,8 @@ void AC_Autorotation::init(AP_MotorsHeli* motors, float gnd_clear) {
         AP_HAL::panic("AROT: _motors_heli is nullptr");
     }
 
-    // Reset z acceleration average variables
-    _avg_acc_z = 0.0f;
-    _acc_z_sum = 0.0f;
-    _index = 0;
-    memset(_curr_acc_z, 0, sizeof(_curr_acc_z));
+    // Reset z acceleration average filter
+    _acc_z_avg.reset();
 
     initial_flare_estimate();
 
@@ -217,6 +214,7 @@ void AC_Autorotation::init(AP_MotorsHeli* motors, float gnd_clear) {
 
     // reset on ground timer
     _time_on_ground = 0;
+
 }
 
 
@@ -532,7 +530,7 @@ void AC_Autorotation::update_flare_alt(void)
 {
     if (!_flare_update_check) {
         float delta_v_z = fabsf((_inav.get_velocity_z_up_cms()) * 0.01f + _est_rod);
-
+        _avg_acc_z = _acc_z_avg.getf();
         if ((_speed_forward >= 0.8f * _param_target_speed) && (delta_v_z <= 2) && (fabsf(_avg_acc_z+GRAVITY_MSS) <= 0.5f)) {
             float vel_z = _inav.get_velocity_z_up_cms() * 0.01f;
             float spd_fwd = _speed_forward * 0.01f;
@@ -597,6 +595,7 @@ void AC_Autorotation::flare_controller(void)
     _accel_out_last = _accel_out;
 
     // Estimate flare effectiveness
+    _avg_acc_z = _acc_z_avg.getf();
     if (_speed_forward <= (0.6 * _flare_entry_speed) && (fabsf(_avg_acc_z+GRAVITY_MSS) <= 0.5f)) {
         if (!_flare_complete) {
             _flare_complete = true;
@@ -670,15 +669,7 @@ bool AC_Autorotation::should_begin_touchdown(void)
 
 void AC_Autorotation::update_avg_acc_z(void)
 {
-    // Wrap index
-    if (_index >= 10) {
-        _index = 0;
-    }
+    float current_acc_z = _ahrs.get_accel_ef().z;
+    _acc_z_avg.apply(current_acc_z);
 
-    _acc_z_sum -= _curr_acc_z[_index];
-    _curr_acc_z[_index] = _ahrs.get_accel_ef().z;
-    _acc_z_sum += _curr_acc_z[_index];
-    _index = _index + 1;
-
-    _avg_acc_z = _acc_z_sum / 10.0;
 }
