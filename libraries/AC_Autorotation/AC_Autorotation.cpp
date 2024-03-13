@@ -237,6 +237,10 @@ void AC_Autorotation::init_glide(float hs_targ)
 
     // Update head speed target
     _target_head_speed = hs_targ;
+
+    // initialize steady rate descent check function
+    _ss_descent_counter = 0;
+    _ss_descent = false;
 }
 
 void AC_Autorotation::init_flare(float hs_targ)
@@ -293,6 +297,9 @@ void AC_Autorotation::update_hs_glide_controller(void)
 
     // Send collective to setting to motors output library
     set_collective(HS_CONTROLLER_COLLECTIVE_CUTOFF_FREQ);
+    _rpm_filter.set_cutoff_frequency(0.05f);
+    _rpm_filter.apply(_current_rpm, _dt);
+    _filt_rpm = _rpm_filter.get();
 }
 
 
@@ -525,8 +532,15 @@ void AC_Autorotation::update_forward_speed_controller(void)
 void AC_Autorotation::update_flare_alt(void)
 {
     if (!_flare_update_check) {
-        float delta_v_z = fabsf((_inav.get_velocity_z_up_cms()) * 0.01f + _est_rod);
-        if ((_speed_forward >= 0.8f * _param_target_speed) && (delta_v_z <= 2) && (fabsf(_avg_acc_z+GRAVITY_MSS) <= 0.5f)) {
+        if(fabsf(_avg_acc_z+GRAVITY_MSS) <= 1.0f ){
+               ++_ss_descent_counter;
+               if(_ss_descent_counter >= 800){
+                  _ss_descent = true;
+               }
+            } else {
+                _ss_descent = false;
+            }
+        if ((_speed_forward >= 0.8f * _param_target_speed) && (fabsf(_filt_rpm - _param_head_speed_set_point) <= (0.02f * _param_head_speed_set_point)) && _ss_descent) {
             float vel_z = _inav.get_velocity_z_up_cms() * 0.01f;
             float spd_fwd = _speed_forward * 0.01f;
             _c = _lift_hover / sq(vel_z);
@@ -663,6 +677,5 @@ bool AC_Autorotation::should_begin_touchdown(void)
 void AC_Autorotation::update_avg_acc_z(void)
 {
     float current_acc_z = _ahrs.get_accel_ef().z;
-    _acc_z_avg.apply(current_acc_z);
-
+    _avg_acc_z=_acc_z_avg.apply(current_acc_z);
 }

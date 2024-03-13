@@ -144,9 +144,13 @@ private:
     bool  _flare_complete;           // Flare completed
     bool  _flare_update_check;       // Check for flare altitude updating
     uint32_t _time_on_ground;        // Time elapsed after touch down
+    float _filt_rpm;                 // low pass filter rpm
+    uint32_t _ss_descent_counter;
+    bool _ss_descent;
 
     LowPassFilterFloat _accel_target_filter; // acceleration target filter
     AverageFilterFloat_Size5 _acc_z_avg; // vertical acceleration moving average
+    LowPassFilterFloat _rpm_filter; // low pass filter for rpm
 
     //--------Parameter Values--------
     AP_Int8  _param_enable;
