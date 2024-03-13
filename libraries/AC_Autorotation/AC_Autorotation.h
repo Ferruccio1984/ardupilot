@@ -6,7 +6,7 @@
 #include <AP_Motors/AP_Motors.h>
 #include <AP_Motors/AP_MotorsHeli_RSC.h>
 #include <AP_Motors/AP_MotorsHeli.h>
-#include <Filter/Filter.h>
+#include <Filter/AverageFilter.h>
 #include <Filter/LowPassFilter.h>
 #include <AC_PID/AC_P.h>
 #include <AP_InertialNav/AP_InertialNav.h>  // Inertial Navigation library
@@ -146,7 +146,7 @@ private:
     uint32_t _time_on_ground;        // Time elapsed after touch down
 
     LowPassFilterFloat _accel_target_filter; // acceleration target filter
-    AverageIntegralFilter<float, float, 10> _acc_z_avg; // vertical acceleration moving average
+    AverageFilterFloat_Size5 _acc_z_avg; // vertical acceleration moving average
 
     //--------Parameter Values--------
     AP_Int8  _param_enable;
