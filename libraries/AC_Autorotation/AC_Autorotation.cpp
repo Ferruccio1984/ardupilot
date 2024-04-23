@@ -252,6 +252,12 @@ void AC_Autorotation::init_flare(float hs_targ)
 
     // Update head speed target
     _target_head_speed = hs_targ;
+
+    //flare time start
+    _flare_start_time = AP_HAL::millis();
+
+    //store forward speed at the start of flare
+    _entry_sink_rate = _inav.get_velocity_z_up_cms();
 }
 
 void AC_Autorotation::init_touchdown(void)
@@ -386,7 +392,7 @@ void AC_Autorotation::initial_flare_estimate(void)
     _flare_update_check = false;
 
 
-    gcs().send_text(MAV_SEVERITY_INFO, "Ct/sigma=%f W=%f kg flare_alt=%f C=%f", c_t/_param_solidity, _lift_hover/GRAVITY_MSS, _flare_alt_calc*0.01f, _c);
+    gcs().send_text(MAV_SEVERITY_INFO, " W_est=%f kg flare_alt=%f m C=%f", _lift_hover/GRAVITY_MSS, _flare_alt_calc*0.01f, _c);
     gcs().send_text(MAV_SEVERITY_INFO, "est_rod=%f", _est_rod);
 }
 
@@ -395,7 +401,7 @@ void AC_Autorotation::calc_flare_alt(float sink_rate, float fwd_speed)
 {
     // Compute speed module and glide path angle during descent
     float speed_module = norm(sink_rate, fwd_speed);
-    float glide_angle = safe_asin(M_PI / 2 - (fwd_speed / speed_module));
+    float glide_angle = (M_PI / 2) - safe_asin (fwd_speed / speed_module);
 
     // Estimate inflow velocity at beginning of flare
     float entry_inflow = - speed_module * sinf(glide_angle + radians(AP_ALPHA_TPP));
@@ -404,22 +410,17 @@ void AC_Autorotation::calc_flare_alt(float sink_rate, float fwd_speed)
     float m = _lift_hover / GRAVITY_MSS;
     float k_1 = safe_sqrt(_lift_hover / _c);
     float k_3 = safe_sqrt((_c * GRAVITY_MSS) / m);
-    float k_2 = 1 / (2 * k_3) * logf(fabsf((entry_inflow - k_1)/(entry_inflow + k_1))) ;
     float a = logf(fabsf((sink_rate - 0.05f - k_1)/(sink_rate - 0.05f + k_1)));
     float b = logf(fabsf((entry_inflow - k_1)/(entry_inflow + k_1)));
-    float delta_t_flare = (1 / (2 * k_3)) * (a - b);
-
-    // Estimate flare delta altitude
-    float k_4 = (2 * k_2 * k_3) + (2 * k_3 * delta_t_flare);
-    float flare_distance;
-    flare_distance = ((k_1 / k_3) * (k_4 - logf(fabsf(1-expf(k_4))) - (2 * k_2 * k_3 - logf(fabsf(1 - expf(2 * k_2 * k_3)))))) - k_1 * delta_t_flare;
-    float delta_h = -flare_distance * cosf(radians(AP_ALPHA_TPP));
+    _delta_t_flare = (1 / (2 * k_3)) * (a - b);
+    float ff_sink_rate = sink_rate * sinf(glide_angle);
 
     // Estimate altitude to begin collective pull
-    _cushion_alt = (-(sink_rate * cosf(radians(AP_ALPHA_TPP))) * _t_tch) * 100.0f;
+    _cushion_alt = (-ff_sink_rate) * _t_tch;
 
     // Total delta altitude to ground
-    _flare_alt_calc = _cushion_alt + delta_h * 100.0f;
+    _flare_alt_calc = ((-sink_rate * (_delta_t_flare)) + _cushion_alt )*100.0;
+    gcs().send_text(MAV_SEVERITY_INFO, "ff_RoD=%f m/s f_time=%f s", ff_sink_rate, _delta_t_flare);
 }
 
 
@@ -564,12 +565,28 @@ float AC_Autorotation::calc_speed_forward(void)
 
 void AC_Autorotation::flare_controller(void)
 {
+    float des_fwd_spd = 0;
+    float t_elapsed = ((AP_HAL::millis()) - _flare_start_time)*0.001f;
+
+    //desired speed shaping function
+    if(t_elapsed <= _delta_t_flare/2){
+        des_fwd_spd = 2 * sq(t_elapsed/_delta_t_flare);
+    }else if(t_elapsed > _delta_t_flare/2 && t_elapsed<=_delta_t_flare){
+        des_fwd_spd = 1 - 2 * sq((t_elapsed - _delta_t_flare)/_delta_t_flare);
+    }else{
+        des_fwd_spd = 1;
+    }
 
     // Specify forward velocity component and determine delta velocity with respect to time
     _speed_forward = calc_speed_forward(); // (cm/s)
     _delta_speed_fwd = _speed_forward - _speed_forward_last; // (cm/s)
     _speed_forward_last = _speed_forward; // (cm/s)
-    _desired_speed = linear_interpolate(0.0f, _flare_entry_speed, _gnd_hgt, _cushion_alt, _flare_alt_calc);
+
+    //scale normalized desired speed to match actual speed interval
+    _desired_speed = linear_interpolate(_flare_entry_speed, 0.0f, des_fwd_spd, 0, 1);
+
+    //log desired forward speed
+    _cmd_vel = _desired_speed;
 
     // Get p
     _vel_p = _p_fw_vel.get_p(_desired_speed - _speed_forward);

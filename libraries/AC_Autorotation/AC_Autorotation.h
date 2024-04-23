@@ -147,6 +147,8 @@ private:
     float _filt_rpm;                 // low pass filter rpm
     uint32_t _ss_descent_counter;
     bool _ss_descent;
+    float _flare_start_time;
+    float _delta_t_flare;
 
     LowPassFilterFloat _accel_target_filter; // acceleration target filter
     AverageFilterFloat_Size5 _acc_z_avg; // vertical acceleration moving average
