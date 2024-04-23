@@ -213,9 +213,6 @@ void ModeAutorotate::run()
         if (!_flags.flare_init) {
             gcs().send_text(MAV_SEVERITY_INFO, "Flare_Phase");
 
-            // Ensure target head speed is set in head speed controller
-            _target_head_speed = HEAD_SPEED_TARGET_RATIO;  //Ensure target hs is set to glide incase hs has not reached target for glide
-
             g2.arot.init_flare(_target_head_speed);
 
             // Prevent running the initial flare functions again
@@ -223,9 +220,6 @@ void ModeAutorotate::run()
         }
         // Run flare controller
         g2.arot.flare_controller();
-
-        // Update head speed/ collective controller
-        g2.arot.update_hs_glide_controller();
 
         // Retrieve pitch target
         _pitch_target = g2.arot.get_pitch();
