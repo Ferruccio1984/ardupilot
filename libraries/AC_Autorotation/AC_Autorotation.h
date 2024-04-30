@@ -149,6 +149,7 @@ private:
     bool _ss_descent;
     float _flare_start_time;
     float _delta_t_flare;
+    float _delta_h_flare;
 
     LowPassFilterFloat _accel_target_filter; // acceleration target filter
     AverageFilterFloat_Size5 _acc_z_avg; // vertical acceleration moving average
@@ -170,6 +171,7 @@ private:
     AP_Int16 _param_head_speed_set_point;
     AP_Float _param_solidity;
     AP_Float _param_diameter;
+    AP_Float _param_f_scale;
     AP_Float _t_tch;
     AP_Int32 _options;
 
