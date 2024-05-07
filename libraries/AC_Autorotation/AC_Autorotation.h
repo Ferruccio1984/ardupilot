@@ -130,18 +130,24 @@ private:
     float _flare_alt_calc;           // Calculated flare altitude
     float _lift_hover;               // Main rotor thrust in hover condition
     float _c;                        // Main rotor drag coefficient
-    float _cushion_alt;              // Altitude for touchdown collective pull
     float _disc_area;                // Main rotor disc area
     float _est_rod;                  // Estimated rate of descent (vertical autorotation)
     bool  _flare_complete;           // Flare completed
     bool  _flare_update_check;       // Check for flare altitude updating
     uint32_t _time_on_ground;        // Time elapsed after touch down
     uint32_t _last_flare_test_ms;    // Last time the initial flare estimate was run and printed to the GCS
-
+    float _delta_t_flare;
+    float _lpf_vs;
+    float _flare_start_time;
+    float _cushion_alt;
+    float _k_flare;
+    bool  _ss_descent;
+    uint32_t _ss_descent_counter;
     float _initial_norm_rpm;         // RPM measurement when we first init into autorotation, normalized by set point, used for slewing target of head speed controller
     float _hs_decay;                 // The head speed target acceleration during the entry phase
 
     LowPassFilterFloat _accel_target_filter; // acceleration target filter
+    LowPassFilterFloat _vs_filter; // low pass filter for vertical speed
 
     //--------Parameter Values--------
     AP_Int8  _param_enable;
@@ -162,6 +168,7 @@ private:
     AP_Float _param_touchdown_time;
     AP_Int32 _options;
     AP_Float _c_l_alpha;
+    AP_Float _param_flare_scale;
 
     enum class OPTION {
         STABILISE_CONTROLS = (1<<0),

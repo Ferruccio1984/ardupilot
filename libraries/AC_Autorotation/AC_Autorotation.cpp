@@ -169,6 +169,15 @@ const AP_Param::GroupInfo AC_Autorotation::var_info[] = {
     // @Range: 1.6 6.283
     AP_GROUPINFO("CL_ALPHA", 18, AC_Autorotation, _c_l_alpha, M_2PI),
 
+    // @Param: FLARE_SCALE
+    // @DisplayName: flare scale
+    // @Description: allows scaling of time allocated for flare phase
+    // @Units:
+    // @Range: 1 2
+    // @Increment: 0.01
+    // @User: Advanced
+    AP_GROUPINFO("FLARE_SCALE", 19, AC_Autorotation, _param_flare_scale, 1),
+
     AP_GROUPEND
 };
 
@@ -241,6 +250,9 @@ void AC_Autorotation::init_entry(void)
 
     // set collective 
     _motors_heli->set_throttle_filter_cutoff(HS_CONTROLLER_COLLECTIVE_CUTOFF_FREQ);
+
+    // reset vertical speed filter
+    _vs_filter.reset();
 }
 
 // The entry controller just a special case of the glide controller with head speed target slewing
@@ -315,6 +327,11 @@ void AC_Autorotation::run_glide(float& pitch_target)
 
     // Keep flare altitude estimate up to date so state machine can decide when to flare
     update_flare_alt();
+
+    //low pass filter for vertical speed
+    _vs_filter.set_cutoff_frequency(0.05f);
+    _vs_filter.apply(_inav.get_velocity_z_up_cms(), _dt);
+    _lpf_vs = _vs_filter.get();
 }
 
 // Functions and config that are only to be done once at the beginning of the flare
@@ -322,21 +339,20 @@ void AC_Autorotation::init_flare(void)
 {
     gcs().send_text(MAV_SEVERITY_INFO, "Flare_Phase");
 
-    // Ensure target head speed, we may have skipped the glide phase if we did not have time to complete the
-    // entry phase before hitting the flare height
-    _target_head_speed = HEAD_SPEED_TARGET_RATIO;
-
     _flare_entry_speed = calc_speed_forward();
+
+    _k_flare = -logf(1/sq(_flare_entry_speed * 0.01f));
+
+    //flare time start
+    _flare_start_time = AP_HAL::millis();
 }
 
 void AC_Autorotation::run_flare(float& pitch_target)
 {
-    // Update head speed/ collective controller
-    update_headspeed_controller();
-
+    float t_elapsed = ((AP_HAL::millis()) - _flare_start_time)*0.001f;
     // During the flare we want to linearly slow the aircraft to a stop as we
     // reach the _cushion_alt for the start of the touch down phase
-    _vel_target = linear_interpolate(0.0f, _flare_entry_speed, _hagl, _cushion_alt, _flare_alt_calc);
+    _vel_target = linear_interpolate(_flare_entry_speed, 0.0f, t_elapsed, 0.0f, _delta_t_flare);
 
     // Run forward speed controller
     update_forward_speed_controller(pitch_target);
@@ -354,7 +370,7 @@ void AC_Autorotation::run_flare(float& pitch_target)
         _pitch_target = atanf(-_accel_out / (GRAVITY_MSS * 100.0f)) * (18000.0f/M_PI);
         _pitch_target = constrain_float(_pitch_target, 0.0f, AP_ALPHA_TPP * 100.0f);
     } else {
-        _pitch_target *= 0.9995f;
+        _pitch_target *= 0.95f;
     }
 }
 
@@ -369,6 +385,7 @@ void AC_Autorotation::init_touchdown(void)
     // store the descent speed and height at the start of the touch down
     _touchdown_init_sink_rate = _inav.get_velocity_z_up_cms();
     _touchdown_init_alt = _hagl;
+    gcs().send_text(MAV_SEVERITY_INFO, "sink_rate=%f", _touchdown_init_sink_rate * 0.01);
 }
 
 // Ensure vehicle is level and use energy stored in head to gently touch down on the ground
@@ -543,11 +560,11 @@ void AC_Autorotation::initial_flare_estimate(void)
 void AC_Autorotation::calc_flare_alt(float sink_rate, float fwd_speed)
 {
     // Compute speed module and glide path angle during descent
-    float speed_module = MAX(norm(sink_rate, fwd_speed), 0.1);
-    float glide_angle = M_PI / 2 - safe_asin(fwd_speed / speed_module);
+    float initial_speed_module = MAX(norm(sink_rate, fwd_speed), 0.1);
+    float glide_angle = M_PI / 2 - safe_asin(fwd_speed / initial_speed_module);
 
     // Estimate inflow velocity at beginning of flare
-    float entry_inflow = - speed_module * sinf(glide_angle + radians(AP_ALPHA_TPP));
+    float entry_inflow = - initial_speed_module * sinf(glide_angle + radians(AP_ALPHA_TPP));
 
     float k_1 = safe_sqrt(_lift_hover / _c);
 
@@ -562,22 +579,23 @@ void AC_Autorotation::calc_flare_alt(float sink_rate, float fwd_speed)
     // Estimate flare duration
     float m = _lift_hover / GRAVITY_MSS;
     float k_3 = safe_sqrt((_c * GRAVITY_MSS) / m);
-    float k_2 = 1 / (2 * k_3) * logf(fabsf((entry_inflow - k_1)/(entry_inflow + k_1)));
     float a = logf(fabsf((sink_rate - k_1)/(sink_rate + k_1)));
     float b = logf(fabsf((entry_inflow - k_1)/(entry_inflow + k_1)));
-    float delta_t_flare = (1 / (2 * k_3)) * (a - b);
+    _delta_t_flare = (1 / (2 * k_3)) * (a - b) * _param_flare_scale;
+    float final_speed_module = sink_rate / sinf(glide_angle + radians(AP_ALPHA_TPP));
+
+    //vertical velocity estimate at beginning of touchdown phase
+    float touchdown_initial_vs = final_speed_module * sinf(glide_angle);
 
     // Estimate flare delta altitude
-    float k_4 = (2 * k_2 * k_3) + (2 * k_3 * delta_t_flare);
-    float flare_distance;
-    flare_distance = ((k_1 / k_3) * (k_4 - logf(fabsf(1-expf(k_4))) - (2 * k_2 * k_3 - logf(fabsf(1 - expf(2 * k_2 * k_3)))))) - k_1 * delta_t_flare;
-    float delta_h = -flare_distance * cosf(radians(AP_ALPHA_TPP));
+    float delta_h_flare = (-sink_rate * (_delta_t_flare));
 
     // Estimate altitude to begin collective pull
-    _cushion_alt = (-(sink_rate * cosf(radians(AP_ALPHA_TPP))) * _param_touchdown_time.get()) * 100.0f;
+    _cushion_alt = (-touchdown_initial_vs) * _param_touchdown_time;
 
     // Total delta altitude to ground
-    _flare_alt_calc = _cushion_alt + delta_h * 100.0f;
+    _flare_alt_calc = (delta_h_flare + _cushion_alt)*100.0;
+    gcs().send_text(MAV_SEVERITY_INFO, "flare_t=%f s final_sink_rate=%f", _delta_t_flare, touchdown_initial_vs);
 }
 
 
@@ -676,15 +694,25 @@ void AC_Autorotation::update_forward_speed_controller(float& pitch_target)
     _accel_out_last = _accel_out;
 
     pitch_target = accel_to_angle(-_accel_out * 0.01) * 100;
+
 }
 
 
 void AC_Autorotation::update_flare_alt(void)
 {
     if (!_flare_update_check) {
-        float delta_v_z = fabsf((_inav.get_velocity_z_up_cms()) * 0.01f + _est_rod);
 
-        if ((_speed_forward >= 0.8f * _param_target_speed) && (delta_v_z <= 2) && (fabsf(_avg_acc_z+GRAVITY_MSS) <= 0.5f)) {
+        if(fabsf(_lpf_vs - _inav.get_velocity_z_up_cms()) <= 25){
+            _ss_descent_counter++;
+            if(_ss_descent_counter >= 400){
+                _ss_descent = true;
+                }
+                       } else {
+                           _ss_descent = false;
+                       }
+
+
+        if ((_speed_forward >= 0.8f * _param_target_speed) && _ss_descent ) {
             float vel_z = _inav.get_velocity_z_up_cms() * 0.01f;
             float spd_fwd = _speed_forward * 0.01f;
             _c = _lift_hover / sq(vel_z);
