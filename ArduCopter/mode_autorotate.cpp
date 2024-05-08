@@ -233,6 +233,7 @@ void ModeAutorotate::run()
     case Autorotation_Phase::TOUCH_DOWN: {
         if (!_flags.touch_down_init) {
             gcs().send_text(MAV_SEVERITY_INFO, "Touchdown_Phase");
+            gcs().send_text(MAV_SEVERITY_INFO, "sink_rate=%f rpm=%f",  curr_vel_z, g2.arot.get_rpm() );
 
             // Save the time on init of touchdown
             _touchdown_time_ms = millis();

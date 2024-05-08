@@ -170,6 +170,15 @@ const AP_Param::GroupInfo AC_Autorotation::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("FLARE_SCALE", 18, AC_Autorotation, _param_f_scale, 1),
 
+    // @Param: FLR_BHV
+    // @DisplayName: flare behavior
+    // @Description:
+    // @Units:
+    // @Range: 0 2
+    // @Increment: 0.01
+    // @User: Advanced
+    AP_GROUPINFO("FLR_BHV", 19, AC_Autorotation, _flr_bhv, 0),
+
     AP_GROUPEND
 };
 
@@ -214,8 +223,6 @@ void AC_Autorotation::init(AP_MotorsHeli* motors, float gnd_clear) {
     // Ensure parameter acceleration doesn't exceed hard-coded limit
     _accel_max = MIN(_param_accel_max, 500.0);
 
-    // Limit flare scale factor in the range 1..2
-    _param_f_scale = constrain_float(_param_f_scale. 1. 2);
 
     // Reset cmd vel and last accel to sensible values
     _cmd_vel = calc_speed_forward(); //(cm/s)
@@ -237,6 +244,7 @@ void AC_Autorotation::init_entry(void)
 
     // Set desired forward speed target
     _vel_target = _param_target_speed.get();
+    _vs_filter.reset();
 }
 
 void AC_Autorotation::init_glide(float hs_targ)
@@ -315,9 +323,6 @@ void AC_Autorotation::update_hs_glide_controller(void)
 
     // Send collective to setting to motors output library
     set_collective(HS_CONTROLLER_COLLECTIVE_CUTOFF_FREQ);
-    _rpm_filter.set_cutoff_frequency(0.05f);
-    _rpm_filter.apply(_current_rpm, _dt);
-    _filt_rpm = _rpm_filter.get();
 }
 
 
@@ -424,17 +429,18 @@ void AC_Autorotation::calc_flare_alt(float sink_rate, float fwd_speed)
     float a = logf(fabsf((sink_rate - 0.05f - k_1)/(sink_rate - 0.05f + k_1)));
     float b = logf(fabsf((entry_inflow - k_1)/(entry_inflow + k_1)));
     _delta_t_flare = (1 / (2 * k_3)) * (a - b)* _param_f_scale;
-    float ff_sink_rate = sink_rate * sinf(glide_angle);
+    float final_speed_module = sink_rate / sinf(glide_angle + radians(AP_ALPHA_TPP));
+    float final_sink_rate = final_speed_module * sinf(glide_angle);
 
     // Estimate flare delta altitude
     _delta_h_flare = (-sink_rate * (_delta_t_flare));
 
     // Estimate altitude to begin collective pull
-    _cushion_alt = (-ff_sink_rate) * _t_tch;
+    _cushion_alt = (-final_sink_rate) * _t_tch;
 
     // Total delta altitude to ground
     _flare_alt_calc = (_delta_h_flare + _cushion_alt)*100.0;
-    gcs().send_text(MAV_SEVERITY_INFO, "f_time=%f s", _delta_t_flare);
+    gcs().send_text(MAV_SEVERITY_INFO, "f_time=%f s ffsr=%f", _delta_t_flare, final_sink_rate);
 }
 
 
@@ -471,7 +477,7 @@ void AC_Autorotation::Log_Write_Autorotation(void) const
                                 _vel_p,
                                 _vel_ff,
                                 _avg_acc_z,
-                                _desired_sink_rate,
+                                _filt_vs,
                                 (_gnd_hgt*0.01f));
 }
 #endif  // HAL_LOGGING_ENABLED
@@ -541,21 +547,25 @@ void AC_Autorotation::update_forward_speed_controller(void)
     _accel_out_last = _accel_out;
 
     _pitch_target = accel_to_angle(-_accel_out * 0.01) * 100;
+
+    _vs_filter.set_cutoff_frequency(0.05f);
+    _vs_filter.apply(_inav.get_velocity_z_up_cms(), _dt);
+    _filt_vs = _vs_filter.get();
 }
 
 
 void AC_Autorotation::update_flare_alt(void)
 {
     if (!_flare_update_check) {
-        if(fabsf(_avg_acc_z+GRAVITY_MSS) <= 1.0f ){
-               ++_ss_descent_counter;
-               if(_ss_descent_counter >= 800){
-                  _ss_descent = true;
-               }
-            } else {
-                _ss_descent = false;
-            }
-        if ((_speed_forward >= 0.8f * _param_target_speed) && (fabsf(_filt_rpm - _param_head_speed_set_point) <= (0.02f * _param_head_speed_set_point)) && _ss_descent) {
+        if(fabsf(_filt_vs - _inav.get_velocity_z_up_cms()) <= 25){
+                    _ss_descent_counter++;
+                    if(_ss_descent_counter >= 400){
+                        _ss_descent = true;
+                        }
+                               } else {
+                                   _ss_descent = false;
+                               }
+        if ((_speed_forward >= 0.8f * _param_target_speed) && _ss_descent) {
             float vel_z = _inav.get_velocity_z_up_cms() * 0.01f;
             float spd_fwd = _speed_forward * 0.01f;
             _c = _lift_hover / sq(vel_z);
@@ -581,12 +591,21 @@ void AC_Autorotation::flare_controller(void)
 {
     float des_fwd_spd = 0;
     float t_elapsed = ((AP_HAL::millis()) - _flare_start_time)*0.001f;
-    float acc_max = (2*(_flare_entry_speed*0.01f))/((_delta_t_flare) - ((_delta_t_flare) / (2*M_PI))*sinf((2*M_PI*(_delta_t_flare))/(_delta_t_flare)));
+    float acc_max = (2*(_flare_entry_speed*0.01f))/_delta_t_flare;
+    float k_flare = -logf(1/sq(_flare_entry_speed*0.01f));
+    if(t_elapsed <= _delta_t_flare){
+        if(_flr_bhv == 0){
+            des_fwd_spd = (-(acc_max/_param_f_scale) / 2)*(t_elapsed - ((_delta_t_flare) / (2*M_PI))*sinf((2*M_PI*t_elapsed)/(_delta_t_flare))) + (_flare_entry_speed*0.01f);
+        }else if (_flr_bhv == 1){
+            des_fwd_spd =(_flare_entry_speed*0.01f) - 1/((_flare_entry_speed*0.01f)*expf(-k_flare*t_elapsed/_delta_t_flare)) ;
+        }else{
+            des_fwd_spd = linear_interpolate(_flare_entry_speed*0.01f, 0.0f, t_elapsed, 0, _delta_t_flare);
+        }
 
-    float acc_limit = (acc_max/_param_f_scale)*100.0f;
-    float acc_des = acc_limit * 0.01f;
+    } else {
+        des_fwd_spd = 0.0f;
+    }
 
-    des_fwd_spd = (-acc_des / 2)*(t_elapsed - ((_delta_t_flare) / (2*M_PI))*sinf((2*M_PI*t_elapsed)/(_delta_t_flare))) + (_flare_entry_speed*0.01f);
     _desired_speed = (des_fwd_spd*100.0f);
 
     // Specify forward velocity component and determine delta velocity with respect to time
@@ -608,14 +627,14 @@ void AC_Autorotation::flare_controller(void)
     _accel_target_filter.apply(_accel_target, _dt);
 
     // Limits the maximum change in pitch attitude based on acceleration
-    if (_accel_target > _accel_out_last + acc_limit) {
-        _accel_target = _accel_out_last + acc_limit;
-    } else if (_accel_target < _accel_out_last - acc_limit) {
-        _accel_target = _accel_out_last - acc_limit;
+    if (_accel_target > _accel_out_last + _accel_max) {
+        _accel_target = _accel_out_last + _accel_max;
+    } else if (_accel_target < _accel_out_last - _accel_max) {
+        _accel_target = _accel_out_last - _accel_max;
     }
 
     // Limiting acceleration based on velocity gained during the previous time step
-    if (fabsf(_delta_speed_fwd) > acc_limit * _dt) {
+    if (fabsf(_delta_speed_fwd) > _accel_max * _dt) {
         _flag_limit_accel = true;
     } else {
         _flag_limit_accel = false;
@@ -642,6 +661,7 @@ void AC_Autorotation::flare_controller(void)
     } else {
         _pitch_target *= 0.95f;
     }
+
 }
 
 

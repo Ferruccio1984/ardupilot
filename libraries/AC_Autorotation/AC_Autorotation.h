@@ -144,7 +144,7 @@ private:
     bool  _flare_complete;           // Flare completed
     bool  _flare_update_check;       // Check for flare altitude updating
     uint32_t _time_on_ground;        // Time elapsed after touch down
-    float _filt_rpm;                 // low pass filter rpm
+    float _filt_vs;                 // low pass filter rpm
     uint32_t _ss_descent_counter;
     bool _ss_descent;
     float _flare_start_time;
@@ -153,7 +153,7 @@ private:
 
     LowPassFilterFloat _accel_target_filter; // acceleration target filter
     AverageFilterFloat_Size5 _acc_z_avg; // vertical acceleration moving average
-    LowPassFilterFloat _rpm_filter; // low pass filter for rpm
+    LowPassFilterFloat _vs_filter; // low pass filter for rpm
 
     //--------Parameter Values--------
     AP_Int8  _param_enable;
@@ -174,6 +174,7 @@ private:
     AP_Float _param_f_scale;
     AP_Float _t_tch;
     AP_Int32 _options;
+    AP_Int32 _flr_bhv;
 
     enum class OPTION {
         STABILISE_CONTROLS=(1<<0),
