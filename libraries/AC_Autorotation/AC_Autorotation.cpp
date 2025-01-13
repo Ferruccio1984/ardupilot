@@ -8,6 +8,7 @@
 // Autorotation controller defaults
 #define HEAD_SPEED_TARGET_RATIO  1.0    // Normalised target main rotor head speed
 #define AP_ALPHA_TPP             20.0  // (deg) Maximum angle of the Tip Path Plane
+#define ASYMPT_THRESHOLD          0.05  //
 
 const AP_Param::GroupInfo AC_Autorotation::var_info[] = {
 
@@ -655,23 +656,16 @@ void AC_Autorotation::calc_flare_hgt(const float fwd_speed, float climb_rate)
     const float glide_angle = M_PI / 2 - safe_asin(fwd_speed / speed_module); // (rad)
 
     // Estimate inflow velocity at beginning of flare
-    float entry_inflow = - speed_module * sinf(glide_angle + radians(AP_ALPHA_TPP));
+    float entry_inflow = - speed_module * sinf(glide_angle + radians(AP_ALPHA_TPP)); //relative to rotor ref system
 
     const float k_1 = safe_sqrt(_hover_thrust / CR); // TODO: discuss: in the initial estimate k1 will always equal climb rate, see definition of CR above
 
-    // Protect against div by 0 case
-    if (is_zero(climb_rate + k_1)) {
-        climb_rate -= 0.05;
-    }
-    if (is_zero(entry_inflow + k_1)) {
-        entry_inflow -= 0.05;
-    }
-
     // Estimate flare duration
+    const float final_sink_rate = climb_rate + ASYMPT_THRESHOLD; //relative to rotor ref system
     const float m = _hover_thrust / GRAVITY_MSS;
     const float k_3 = safe_sqrt((CR * GRAVITY_MSS) / m);
     const float k_2 = 1 / (2 * k_3) * logf(fabsf((entry_inflow - k_1)/(entry_inflow + k_1)));
-    const float a = logf(fabsf((climb_rate - k_1)/(climb_rate + k_1)));
+    const float a = logf(fabsf((final_sink_rate - k_1)/(final_sink_rate + k_1)));
     const float b = logf(fabsf((entry_inflow - k_1)/(entry_inflow + k_1)));
     const float delta_t_flare = (1 / (2 * k_3)) * (a - b);
 
