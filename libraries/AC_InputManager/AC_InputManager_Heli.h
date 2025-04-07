@@ -36,6 +36,15 @@ public:
     // set_heli_stab_col_ramp - setter function
     void set_stab_col_ramp(float ramp) { _stab_col_ramp = constrain_float(ramp, 0.0, 1.0); }
 
+    // set transition collective when exiting non manual collective modes
+    void init_collective (float coll_in){_last_auto_coll = coll_in;}
+
+    // set manual collective ramp
+    void set_man_col_ramp(float ramp_to_man) {_man_trans_ramp = constrain_float(ramp_to_man, 0.0, 1.0);}
+
+    //set manual collective
+    void set_man_col (bool manual) {_im_flags_heli.man_col = manual;}
+
     // parameter_check - returns true if input manager specific parameters are sensible, used for pre-arm check
     bool parameter_check(char* fail_msg, uint8_t fail_msg_len) const;
 
@@ -44,10 +53,17 @@ public:
 private:
     struct InputManagerHeliFlags {
         uint8_t use_stab_col        :   1;  // 1 if we should use Stabilise mode collective range, 0 for Acro range
+        uint8_t man_col             :   1;
     } _im_flags_heli;
 
     //  factor used to smoothly ramp collective from Acro value to Stab-Col value
     float _stab_col_ramp = 0;
+
+    // factor used to smoothly ramp collective from non-manual to manual collective modes
+    float _man_trans_ramp = 0;
+
+    // last stored non-manual collective position
+    float _last_auto_coll = 0;
 
     AP_Int16        _heli_stab_col_min;             // minimum collective pitch setting at zero throttle input in Stabilize mode
     AP_Int16        _heli_stab_col_low;             // collective pitch setting at mid-low throttle input in Stabilize mode

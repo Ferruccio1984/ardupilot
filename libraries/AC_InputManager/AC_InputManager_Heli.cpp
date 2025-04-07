@@ -114,9 +114,15 @@ float AC_InputManager_Heli::get_pilot_desired_collective(int16_t control_in)
     }
     _stab_col_ramp = constrain_float(_stab_col_ramp, 0.0f, 1.0f);
 
+    //ramping between non-manual and manual throttle modes over 1 second
+    if (_im_flags_heli.man_col){
+        _man_trans_ramp += 1.0f/(float)_loop_rate;
+    }
+    _man_trans_ramp = constrain_float(_man_trans_ramp, 0.0f, 1.0f);
+
     // scale collective output smoothly between acro and stab col
     float collective_out;
-    collective_out = (float)((1.0f-_stab_col_ramp)*acro_col_out + _stab_col_ramp*stab_col_out);
+    collective_out = (1.0 - _man_trans_ramp) * _last_auto_coll + _man_trans_ramp * (float)((1.0f-_stab_col_ramp)*acro_col_out + _stab_col_ramp*stab_col_out);
     collective_out = constrain_float(collective_out, 0.0f, 1.0f);
 
     return collective_out;
